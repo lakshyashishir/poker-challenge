@@ -1,6 +1,6 @@
-
-import { useState } from 'react';
-import { Wallet, ChevronDown, LogOut } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { Aptos, AptosConfig, Network, NetworkToNetworkName } from "@aptos-labs/ts-sdk";
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -10,29 +10,72 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Wallet, ChevronDown, LogOut } from 'lucide-react';
 
 const ConnectWallet = () => {
-  const [connected, setConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState('');
-  const [balance, setBalance] = useState(0);
+  const { connected, account, connect, disconnect, wallets, network } = useWallet();
+  const [balance, setBalance] = useState<bigint | null>(null);
 
-  const mockConnect = () => {
-    setConnected(true);
-    const mockAddress = '0x' + Math.random().toString(16).slice(2, 10) + '...' + Math.random().toString(16).slice(2, 6);
-    setWalletAddress(mockAddress);
-    setBalance(parseFloat((Math.random() * 100).toFixed(2)));
-  };
+  const aptos = useMemo(() => {
+    const networkName = network?.name?.toLowerCase() || "testnet";
+    const config = new AptosConfig({ 
+      network: networkName === "testnet" ? Network.TESTNET : Network.MAINNET 
+    });
+    return new Aptos(config);
+  }, [network?.name]);
 
-  const disconnect = () => {
-    setConnected(false);
-    setWalletAddress('');
-    setBalance(0);
+  useEffect(() => {
+    let isMounted = true;
+    
+    if (connected && account) {
+      const fetchBalance = async () => {
+        try {
+          const coinData = await aptos.getAccountCoinsData({
+            accountAddress: account.address,
+            options: {
+              limit: 1,
+              orderBy: [{ asset_type: "asc" }]
+            }
+          });
+          
+          const aptCoin = coinData.find(coin => 
+            coin.asset_type === "0x1::aptos_coin::AptosCoin"
+          );
+          
+          if (aptCoin && isMounted) {
+            setBalance(BigInt(aptCoin.amount));
+          } else if (isMounted) {
+            setBalance(BigInt(0));
+          }
+        } catch (error) {
+          console.error("Error fetching balance:", error);
+          if (isMounted) {
+            setBalance(null);
+          }
+        }
+      };
+      fetchBalance();
+    } else {
+      setBalance(null);
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [connected, account, aptos]);
+
+  const handleConnect = () => {
+    if (wallets && wallets.length > 0) {
+      connect(wallets[0].name);
+    } else {
+      console.error("No wallets available");
+    }
   };
 
   if (!connected) {
     return (
       <Button 
-        onClick={mockConnect} 
+        onClick={handleConnect} 
         className="poker-button-primary flex items-center gap-2"
       >
         <Wallet size={18} />
@@ -40,6 +83,11 @@ const ConnectWallet = () => {
       </Button>
     );
   }
+
+  const addressString = account?.address?.toString();
+  const displayAddress = addressString 
+    ? `${addressString.slice(0, 6)}...${addressString.slice(-4)}` 
+    : '';
 
   return (
     <DropdownMenu>
@@ -49,7 +97,9 @@ const ConnectWallet = () => {
           className="flex items-center gap-2 bg-secondary/50 border border-primary/10 hover:bg-secondary"
         >
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-          <span className="font-medium">{walletAddress}</span>
+          <span className="font-medium">
+            {displayAddress}
+          </span>
           <ChevronDown size={16} />
         </Button>
       </DropdownMenuTrigger>
@@ -59,7 +109,8 @@ const ConnectWallet = () => {
         <div className="px-2 py-3">
           <div className="text-sm text-muted-foreground mb-1">Balance</div>
           <div className="text-xl font-bold flex items-center gap-2">
-            {balance.toFixed(2)} <span className="text-sm font-medium">APT</span>
+            {balance ? (Number(balance) / 100_000_000).toFixed(2) : "0.00"} 
+            <span className="text-sm font-medium">APT</span>
           </div>
         </div>
         <DropdownMenuSeparator />
