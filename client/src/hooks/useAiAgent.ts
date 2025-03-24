@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, GameAction } from '@/lib/types';
+import { describe } from 'node:test';
 
 interface GameInfo {
   pot: number;
@@ -73,12 +74,15 @@ export const useAiAgent = () => {
         },
         body: JSON.stringify(gameInfo),
       });
+
+      console.log("ye dekh laksh", gameInfo)
       
       if (!response.ok) {
         throw new Error('Failed to get AI decision');
       }
       
       const decision = await response.json();
+      console.log("ai ka descision", decision)
       return decision;
     } catch (error) {
       console.error('Error getting AI decision:', error);

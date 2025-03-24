@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Header from "@/components/Header";
 import PokerTable from "@/components/PokerTable";
 import ChallengeDialog from "@/components/ChallengeDialog";
@@ -39,6 +39,9 @@ const Game = () => {
   const [showCardPreview, setShowCardPreview] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [waitingForAi, setWaitingForAi] = useState(false);
+  const [aiThought, setAiThought] = useState<string | null>(null);
+
+  const aiTurnTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const {
     getAiDecision,
@@ -55,9 +58,40 @@ const Game = () => {
       pot: gameState?.pot,
       currentPlayer: gameState?.currentPlayer,
       started: gameState?.started,
-      fullState: gameState
+      round: gameState?.round,
     });
   }, [gameState]);
+
+  // Effect to handle AI turn when currentPlayer changes to "ai"
+  useEffect(() => {
+    if (gameState?.currentPlayer === "ai" && !waitingForAi && gameState.started && !gameState.ended) {
+      console.log("AI turn triggered by effect");
+      setWaitingForAi(true);
+      setAiThought("Thinking...");
+      
+      handleAITurn();
+      // Clear any existing timeout
+      if (aiTurnTimeoutRef.current) {
+        clearTimeout(aiTurnTimeoutRef.current);
+      }
+      
+      // Add a small delay to make the AI seem more natural
+      // aiTurnTimeoutRef.current = setTimeout(() => {
+      //   handleAITurn().catch(error => {
+      //     console.error("Error during AI turn:", error);
+      //     setWaitingForAi(false);
+      //     setAiThought(null);
+      //   });
+      // }, 2000);
+    }
+    
+    // Cleanup function
+    return () => {
+      if (aiTurnTimeoutRef.current) {
+        clearTimeout(aiTurnTimeoutRef.current);
+      }
+    };
+  }, [gameState?.currentPlayer, gameState?.started, gameState?.ended, waitingForAi]);
 
   const initializeGame = () => {
     return new Promise<void>(async (resolve) => {
@@ -129,11 +163,6 @@ const Game = () => {
 
   const startGame = () => {
     return new Promise<void>((resolve) => {
-      if (!gameState) {
-        console.error("Game state is null when starting game");
-        return;
-      }
-
       const deck = generateDeck();
       const shuffledDeck = shuffleDeck(deck);
       
@@ -180,9 +209,11 @@ const Game = () => {
             }
           ],
           deck: shuffledDeck,
-          round: 'preflop'
+          round: 'preflop',
+          currentBet: bigBlind,
+          lastRaise: bigBlind
         };
-
+        
         return newState;
       });
 
@@ -198,7 +229,7 @@ const Game = () => {
 
     for (const suit of suits) {
       for (const rank of ranks) {
-        deck.push({ suit, rank });
+        deck.push({ suit, rank } as CardType);
       }
     }
 
@@ -232,7 +263,7 @@ const Game = () => {
   };
 
   const handlePlayerAction = async (action: TurnAction) => {
-    if (!gameState || gameState.currentPlayer !== "player1") return;
+    if (!gameState || gameState.currentPlayer !== "player1" || gameState.ended) return;
   
     try {
       const { type, amount } = action;
@@ -242,15 +273,52 @@ const Game = () => {
         
         let newPot = prev.pot;
         let playerChips = prev.players[0].chips;
+        let currentBet = prev.currentBet || 0;
+        let lastRaise = prev.lastRaise || 0;
         
-        if (type === "call" && amount) {
-          newPot += amount;
-          playerChips -= amount;
+        if (type === "fold") {
+          return {
+            ...prev,
+            ended: true,
+            winner: "ai",
+            currentPlayer: "",
+            aiAgent: {
+              ...prev.aiAgent,
+              chips: prev.aiAgent.chips + newPot,
+              thinking: false
+            },
+            actions: [...prev.actions, {
+              type,
+              player: "player1",
+              timestamp: Date.now()
+            }]
+          };
+        } else if (type === "check") {
+          if (currentBet > 0) {
+            console.error("Cannot check when there's an active bet");
+            return prev;
+          }
+        } else if (type === "call") {
+          const callAmount = Math.min(currentBet, playerChips);
+          newPot += callAmount;
+          playerChips -= callAmount;
         } else if (type === "raise" && amount) {
+          if (amount < currentBet * 2 && amount < playerChips) {
+            console.error("Raise must be at least double the current bet");
+            return prev;
+          }
+          
           newPot += amount;
           playerChips -= amount;
+          currentBet = amount;
+          lastRaise = amount - (prev.currentBet || 0);
         } else if (type === "all-in") {
-          newPot += playerChips;
+          const allInAmount = playerChips;
+          newPot += allInAmount;
+          currentBet = Math.max(currentBet, allInAmount);
+          if (allInAmount > currentBet) {
+            lastRaise = allInAmount - currentBet;
+          }
           playerChips = 0;
         }
         
@@ -262,48 +330,62 @@ const Game = () => {
           }],
           pot: newPot,
           currentPlayer: "ai",
+          currentBet,
+          lastRaise,
           aiAgent: {
             ...prev.aiAgent,
             thinking: true
           },
           actions: [...prev.actions, {
             type,
-            amount,
+            amount: amount || (type === "all-in" ? playerChips : undefined),
             player: "player1",
             timestamp: Date.now()
           }]
         };
       });
-
-      setWaitingForAi(true);
-      await handleAITurn();
     } catch (error) {
       console.error("Error during player action:", error);
-      setWaitingForAi(false);
     }
   };
 
   const handleAITurn = async () => {
-    if (!gameState || gameState.currentPlayer !== "ai") return;
+    // if (!gameState || gameState.currentPlayer !== "ai" || gameState.ended) {
+    //   setWaitingForAi(false);
+    //   setAiThought(null);
+    //   return;
+    // }
+
+    console.log("handleAiTurn tak aaya kya")
   
     try {
       const gameInfo = {
         pot: gameState.pot,
         round: gameState.round,
         communityCards: gameState.communityCards,
-        aiCards: gameState.aiAgent.cards,
+        aiCards: gameState.aiAgent.cards.map(card => ({ ...card, hidden: false })),
         aiChips: gameState.aiAgent.chips,
         playerChips: gameState.players[0].chips,
         actions: gameState.actions,
       };
   
       const decision = await getAiDecision(gameInfo);
-      processAIAction(decision.action, decision.amount);
+      // Display AI thought before action
+      setAiThought(`${decision.action.toUpperCase()}${decision.amount ? ` $${decision.amount}` : ''} (${Math.round(decision.confidence * 100)}% confident)${decision.reasoning ? `\nReasoning: ${decision.reasoning}` : ''}`);
+      
+      // Add a delay to show the thought bubble
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await processAIAction(decision.action, decision.amount);
     } catch (error) {
       console.error("Error getting AI decision:", error);
+      setAiThought("Hmm, let me think...");
+      await new Promise(resolve => setTimeout(resolve, 1500));
       simulateAIAction();
     } finally {
-      setWaitingForAi(false);
+      setTimeout(() => {
+        setWaitingForAi(false);
+        setAiThought(null);
+      }, 1000);
     }
   };
 
@@ -318,6 +400,8 @@ const Game = () => {
 
       let newPot = prev.pot;
       let aiChips = prev.aiAgent.chips;
+      let currentBet = prev.currentBet || 0;
+      let lastRaise = prev.lastRaise || 0;
 
       if (aiAction === "fold") {
         if (prev.aiAgent.walletAddress && prev.pot > 0) {
@@ -347,15 +431,42 @@ const Game = () => {
         };
       }
 
+      if (aiAction === "check") {
+        if (currentBet > 0) {
+          console.error("AI cannot check when there's an active bet");
+          aiAction = "call";
+          actionAmount = currentBet;
+        }
+      }
+
       if (aiAction === "call") {
-        newPot += actionAmount;
-        aiChips -= actionAmount;
+        const callAmount = Math.min(currentBet, aiChips);
+        newPot += callAmount;
+        aiChips -= callAmount;
       } else if (aiAction === "raise") {
+        if (actionAmount < currentBet * 2 && actionAmount < aiChips) {
+          actionAmount = currentBet * 2;
+        }
+        
+        if (actionAmount > aiChips) {
+          actionAmount = aiChips;
+          aiAction = "all-in";
+        }
+        
         newPot += actionAmount;
         aiChips -= actionAmount;
+        currentBet = actionAmount;
+        lastRaise = actionAmount - (prev.currentBet || 0);
       } else if (aiAction === "all-in") {
-        newPot += aiChips;
-        actionAmount = aiChips;
+        const allInAmount = aiChips;
+        newPot += allInAmount;
+        actionAmount = allInAmount;
+        
+        if (allInAmount > currentBet) {
+          currentBet = allInAmount;
+          lastRaise = allInAmount - (prev.currentBet || 0);
+        }
+        
         aiChips = 0;
       }
 
@@ -366,24 +477,51 @@ const Game = () => {
         timestamp: Date.now(),
       };
 
-      const shouldAdvanceRound = prev.actions.filter(a => a.type !== "blind").length % 2 === 1 
-        && (aiAction === "check" || aiAction === "call");
+      // Check if both players have acted and it's time to advance the round
+      const lastPlayerAction = prev.actions.filter(a => a.player === "player1").pop();
+      const lastAiAction = prev.actions.filter(a => a.player === "ai" && a.type !== "blind").pop();
+      
+      const bothPlayersActed = 
+        lastPlayerAction && 
+        (lastAiAction || aiAction === "check" || aiAction === "call");
+      
+      const playerHasChecked = lastPlayerAction?.type === "check";
+      const aiHasChecked = aiAction === "check";
+      const playerHasCalled = lastPlayerAction?.type === "call";
+      const aiHasCalled = aiAction === "call";
+      
+      const roundComplete = 
+        (playerHasChecked && aiHasChecked) || 
+        (playerHasCalled && (aiHasChecked || aiHasCalled)) ||
+        (aiHasCalled && playerHasChecked);
 
-      let nextRound = shouldAdvanceRound ? determineNextRound(prev.round) : prev.round;
+      let nextRound = prev.round;
       let newCommunityCards = [...prev.communityCards];
       let remainingDeck = [...(prev.deck || [])];
 
-      if (shouldAdvanceRound && nextRound !== prev.round) {
-        switch (nextRound) {
-          case "flop":
-            newCommunityCards = remainingDeck.splice(-3).reverse();
-            break;
-          case "turn":
-          case "river":
-            newCommunityCards = [...prev.communityCards, remainingDeck.pop()!];
-            break;
-          case "showdown":
-            return handleShowdown(prev, newAction, aiChips);
+      if (bothPlayersActed && roundComplete) {
+        nextRound = determineNextRound(prev.round);
+        currentBet = 0; // Reset current bet for new round
+        
+        if (nextRound !== prev.round) {
+          console.log(`Advancing from ${prev.round} to ${nextRound}`);
+          switch (nextRound) {
+            case "flop":
+              newCommunityCards = remainingDeck.splice(-3).reverse();
+              toast.info("Dealing the flop!");
+              break;
+            case "turn":
+              newCommunityCards = [...prev.communityCards, remainingDeck.pop()!];
+              toast.info("Dealing the turn!");
+              break;
+            case "river":
+              newCommunityCards = [...prev.communityCards, remainingDeck.pop()!];
+              toast.info("Dealing the river!");
+              break;
+            case "showdown":
+              toast.info("Showdown! Revealing cards...");
+              return handleShowdown(prev, newAction, aiChips);
+          }
         }
       }
 
@@ -397,13 +535,15 @@ const Game = () => {
         pot: newPot,
         communityCards: newCommunityCards,
         currentPlayer: "player1",
+        currentBet,
+        lastRaise,
         round: nextRound,
         actions: [...prev.actions, newAction],
         deck: remainingDeck,
       };
     });
   };
-
+  
   const handleShowdown = (prevState: GameState, lastAction: GameAction, finalAiChips: number) => {
     const updatedAICards = prevState.aiAgent.cards.map(card => ({ ...card, hidden: false }));
     const playerHand = evaluateHand([...prevState.players[0].cards, ...prevState.communityCards]);
@@ -477,7 +617,7 @@ const Game = () => {
     if (lastPlayerAction && 
         (lastPlayerAction.type === "raise" || lastPlayerAction.type === "all-in") && 
         actions[actionIndex] === "check") {
-      actionIndex = 2;
+      actionIndex = 2;  // Call index
     }
 
     const aiAction = actions[actionIndex] as "fold" | "check" | "call" | "raise" | "all-in";
@@ -535,7 +675,7 @@ const Game = () => {
                 Play against an AI opponent powered by blockchain technology!
               </p>
               <div className="flex gap-4 mt-4">
-                <Button size="lg" onClick={() => initializeGame()} className="min-w-32">
+                <Button size="lg" onClick={() => initializeGame().then(startGame)} className="min-w-32">
                   <PlayIcon className="mr-2" />
                   Start Game
                 </Button>
@@ -597,7 +737,7 @@ const Game = () => {
                 )}
               </div>
 
-              <div className="w-full max-w-full rounded-xl overflow-hidden shadow-xl border border-gray-800">
+              <div className="w-full max-w-full rounded-xl shadow-xl border border-gray-800">
                 <PokerTable
                   gameState={gameState}
                   onAction={handlePlayerAction}
@@ -610,17 +750,7 @@ const Game = () => {
       </main>
 
       {process.env.NODE_ENV === 'development' && (
-        <div className="fixed bottom-4 right-4 bg-black/80 p-4 rounded-lg text-xs text-white">
-          <pre>
-            {JSON.stringify({
-              started: gameState?.started,
-              currentPlayer: gameState?.currentPlayer,
-              pot: gameState?.pot,
-              round: gameState?.round,
-              actions: gameState?.actions.map(a => `${a.player}:${a.type}:${a.amount || 0}`).slice(-5),
-            }, null, 2)}
-          </pre>
-        </div>
+        <DebugPanel gameState={gameState} />
       )}
     </div>
   );

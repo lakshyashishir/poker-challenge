@@ -143,7 +143,7 @@ const makePokerDecision = async (gameInfo: GameInfo): Promise<Decision> => {
     `;
     
     const response = await llm.chat.completions.create({
-      model: "gpt-4-omni", // Use an OpenRouter model
+      model: "openai/gpt-4o",
       messages: [
         { role: "user", content: prompt }
       ],

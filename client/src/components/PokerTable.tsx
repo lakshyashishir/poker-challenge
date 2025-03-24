@@ -3,7 +3,7 @@ import { Player as PlayerType, AIAgent as AIAgentType, Card as CardType, GameAct
 import AIAgent from './AIAgent';
 import Card from './Card';
 import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import { toast } from '@/components/ui/use-toast';
 
 export interface PokerTableProps {
   gameState: GameState;
@@ -39,29 +39,27 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
       pot: gameState.pot,
       currentPlayer: gameState.currentPlayer,
       started: gameState.started,
-      actions: gameState.actions
+      round: gameState.round,
+      actions: gameState.actions,
+      isProcessing
     });
-  }, [gameState]);
+  }, [gameState, isProcessing]);
   
   const handleFold = () => {
     onAction({ type: 'fold' });
-    toast.info("You folded your hand");
   };
   
   const handleCheckCall = () => {
     if (currentBet === 0) {
       onAction({ type: 'check' });
-      toast.info("You checked");
     } else {
       onAction({ type: 'call', amount: currentBet });
-      toast.info(`You called ${currentBet} chips`);
     }
   };
   
   const handleRaise = () => {
     if (isRaising) {
       onAction({ type: 'raise', amount: raiseAmount });
-      toast.info(`You raised to ${raiseAmount} chips`);
       setIsRaising(false);
     } else {
       setIsRaising(true);
@@ -70,7 +68,6 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
   
   const handleAllIn = () => {
     onAction({ type: 'all-in', amount: humanPlayer.chips });
-    toast.info(`You're all in with ${humanPlayer.chips} chips!`);
   };
   
   const cancelRaise = () => {
@@ -85,7 +82,9 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
   console.log('PokerTable render:', { 
     pot: gameState.pot,
     isProcessing,
-    currentPlayer: gameState.currentPlayer
+    currentPlayer: gameState.currentPlayer,
+    isPlayerTurn,
+    started: gameState.started
   });
 
   return (
@@ -156,7 +155,7 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
                 variant="destructive" 
                 onClick={handleFold}
                 className="min-w-24"
-                disabled={isProcessing}
+                disabled={!isPlayerTurn || isProcessing}
               >
                 Fold
               </Button>
@@ -165,7 +164,7 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
                 variant="secondary" 
                 onClick={handleCheckCall}
                 className="min-w-24"
-                disabled={isProcessing}
+                disabled={!isPlayerTurn || isProcessing}
               >
                 {getCheckCallLabel()}
               </Button>
@@ -174,7 +173,7 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
                 variant="default" 
                 onClick={handleRaise}
                 className="min-w-24"
-                disabled={humanPlayer.chips <= currentBet || isProcessing}
+                disabled={!isPlayerTurn || humanPlayer.chips <= currentBet || isProcessing}
               >
                 Raise
               </Button>
@@ -183,7 +182,7 @@ const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
                 variant="outline" 
                 onClick={handleAllIn}
                 className="min-w-24 bg-red-500/10 text-red-500 hover:bg-red-500/20 hover:text-red-600"
-                disabled={isProcessing}
+                disabled={!isPlayerTurn || isProcessing}
               >
                 All In
               </Button>
