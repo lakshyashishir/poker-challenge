@@ -1,0 +1,16 @@
+[package]
+name = "poker-challenge"
+version = "1.0.0"
+authors = []
+
+[addresses]
+poker_addr = "0xc92cc69f6d4d54437fb803d3a05ff437a9561396d0ee01ef000354cb7a9eaa35"
+
+[dev-addresses]
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-framework.git"
+rev = "testnet"
+subdir = "aptos-framework"
+
+[dev-dependencies]

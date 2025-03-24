@@ -15,6 +15,9 @@ import { PlayIcon, ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 import CardPreview from "@/components/CardPreview";
 import { evaluateHand } from "@/lib/poker-logic";
 import { useAiAgent } from "@/hooks/useAiAgent";
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { Aptos, AptosConfig, Network } from "@aptos-labs/ts-sdk";
+import ConnectWallet from "@/components/ConnectWallet";
 
 const DebugPanel = ({ gameState }: { gameState: GameState | null }) => {
   if (!gameState) return null;
@@ -34,12 +37,14 @@ const DebugPanel = ({ gameState }: { gameState: GameState | null }) => {
 };
 
 const Game = () => {
+  const { connected, account } = useWallet();
   const [showChallenge, setShowChallenge] = useState(true);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [showCardPreview, setShowCardPreview] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [waitingForAi, setWaitingForAi] = useState(false);
   const [aiThought, setAiThought] = useState<string | null>(null);
+  const [playerBalance, setPlayerBalance] = useState<number>(0);
 
   const aiTurnTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -61,6 +66,36 @@ const Game = () => {
       round: gameState?.round,
     });
   }, [gameState]);
+
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (connected && account) {
+        const config = new AptosConfig({ network: Network.TESTNET });
+        const aptos = new Aptos(config);
+        
+        try {
+          const coinData = await aptos.getAccountCoinsData({
+            accountAddress: account.address,
+            options: { limit: 1 }
+          });
+          
+          const aptCoin = coinData.find(coin => 
+            coin.asset_type === "0x1::aptos_coin::AptosCoin"
+          );
+          
+          if (aptCoin) {
+            const balance = Number(aptCoin.amount) / 100_000_000; // Convert from octas to APT
+            setPlayerBalance(balance);
+          }
+        } catch (error) {
+          console.error("Error fetching balance:", error);
+          toast.error("Failed to fetch wallet balance");
+        }
+      }
+    };
+
+    fetchBalance();
+  }, [connected, account]);
 
   // Effect to handle AI turn when currentPlayer changes to "ai"
   useEffect(() => {
@@ -95,22 +130,32 @@ const Game = () => {
 
   const initializeGame = () => {
     return new Promise<void>(async (resolve) => {
+      if (!connected) {
+        toast.error("Please connect your wallet to play");
+        return;
+      }
+
+      const maxChips = Math.min(playerBalance * 1000, 2000); // Convert APT to chips, max 2000
+      if (maxChips < 100) {
+        toast.error("Insufficient balance. Minimum 0.1 APT required to play");
+        return;
+      }
+
       try {
-        const balance = await getWalletBalance() * 500;
         const initialGameState: GameState = {
           id: Math.random().toString(36).substring(2, 9),
           players: [
             {
               id: "player1",
               name: "You",
-              chips: 1000,
+              chips: maxChips,
               cards: [],
             },
           ],
           aiAgent: {
             id: "ai",
             name: "PokerMind AI",
-            chips: balance || 1000,
+            chips: maxChips,
             cards: [],
             thinking: false,
             walletAddress: walletAddress,
@@ -125,38 +170,11 @@ const Game = () => {
         };
 
         setGameState(initialGameState);
-        toast.success("Connected to AI wallet on Aptos blockchain!");
+        toast.success("Game initialized with " + maxChips + " chips!");
         resolve();
       } catch (error) {
-        const demoGameState: GameState = {
-          id: Math.random().toString(36).substring(2, 9),
-          players: [
-            {
-              id: "player1",
-              name: "You",
-              chips: 1000,
-              cards: [],
-            },
-          ],
-          aiAgent: {
-            id: "ai",
-            name: "PokerMind AI (Demo)",
-            chips: 1000,
-            cards: [],
-            thinking: false,
-          },
-          communityCards: [],
-          pot: 0,
-          currentPlayer: "",
-          round: "preflop",
-          actions: [],
-          started: false,
-          ended: false,
-        };
-
-        setGameState(demoGameState);
-        toast.error("Failed to connect to blockchain. Using demo mode.");
-        resolve();
+        console.error("Error initializing game:", error);
+        toast.error("Failed to initialize game");
       }
     });
   };
@@ -661,6 +679,18 @@ const Game = () => {
       <Header />
       <main className="pt-20 px-4 max-w-screen-xl mx-auto">
         <div className="min-h-[80vh] flex flex-col items-center justify-center">
+          {showChallenge && !connected && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-background p-8 rounded-xl max-w-md mx-auto text-center">
+                <h2 className="text-2xl font-bold mb-4">Connect Wallet to Play</h2>
+                <p className="text-gray-400 mb-6">
+                  Please connect your wallet to start playing. You need a minimum of 0.1 APT to join the game.
+                </p>
+                <ConnectWallet />
+              </div>
+            </div>
+          )}
+
           {showChallenge && (
             <ChallengeDialog
               onAccept={acceptChallenge}

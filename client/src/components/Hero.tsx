@@ -34,12 +34,12 @@ const Hero = () => {
         </div>
         
         <h1 className={`text-4xl md:text-6xl lg:text-7xl font-bold mb-6 transition-all duration-700 delay-100 ${loaded ? 'opacity-100 transform-none' : 'opacity-0 translate-y-8'}`}>
-          Challenge Your Poker <br />
-          <span className="text-gradient">Skills Against AI</span>
+        Outsmart the AI.  <br />
+          <span className="text-gradient">Win the Pot.</span>
         </h1>
         
         <p className={`text-xl text-muted-foreground max-w-2xl mx-auto mb-10 transition-all duration-700 delay-200 ${loaded ? 'opacity-100 transform-none' : 'opacity-0 translate-y-8'}`}>
-          Test your poker prowess against our cutting-edge AI agent. Win big rewards, climb the leaderboard, and improve your game through advanced analysis.
+        Step into the ultimate poker challenge where strategy meets innovation. Play against an adaptive AI and prove your mastery.
         </p>
         
         <div className={`flex flex-col sm:flex-row gap-4 justify-center transition-all duration-700 delay-300 ${loaded ? 'opacity-100 transform-none' : 'opacity-0 translate-y-8'}`}>
