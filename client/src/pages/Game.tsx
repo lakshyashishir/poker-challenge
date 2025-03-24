@@ -1,0 +1,629 @@
+import { useState, useEffect } from "react";
+import Header from "@/components/Header";
+import PokerTable from "@/components/PokerTable";
+import ChallengeDialog from "@/components/ChallengeDialog";
+import {
+  GameState,
+  GameAction,
+  Card as CardType,
+  PokerHand,
+  TurnAction,
+} from "@/lib/types";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { PlayIcon, ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
+import CardPreview from "@/components/CardPreview";
+import { evaluateHand } from "@/lib/poker-logic";
+import { useAiAgent } from "@/hooks/useAiAgent";
+
+const DebugPanel = ({ gameState }: { gameState: GameState | null }) => {
+  if (!gameState) return null;
+  
+  return (
+    <div className="fixed bottom-4 right-4 bg-black/80 p-4 rounded-lg text-xs">
+      <pre>
+        {JSON.stringify({
+          started: gameState.started,
+          currentPlayer: gameState.currentPlayer,
+          pot: gameState.pot,
+          round: gameState.round,
+        }, null, 2)}
+      </pre>
+    </div>
+  );
+};
+
+const Game = () => {
+  const [showChallenge, setShowChallenge] = useState(true);
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [showCardPreview, setShowCardPreview] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+  const [waitingForAi, setWaitingForAi] = useState(false);
+
+  const {
+    getAiDecision,
+    getWalletBalance,
+    walletAddress,
+    walletBalance,
+    performTransaction,
+    isProcessing,
+  } = useAiAgent();
+
+  useEffect(() => {
+    console.log("Game state updated:", {
+      hasState: !!gameState,
+      pot: gameState?.pot,
+      currentPlayer: gameState?.currentPlayer,
+      started: gameState?.started,
+      fullState: gameState
+    });
+  }, [gameState]);
+
+  const initializeGame = () => {
+    return new Promise<void>(async (resolve) => {
+      try {
+        const balance = await getWalletBalance() * 500;
+        const initialGameState: GameState = {
+          id: Math.random().toString(36).substring(2, 9),
+          players: [
+            {
+              id: "player1",
+              name: "You",
+              chips: 1000,
+              cards: [],
+            },
+          ],
+          aiAgent: {
+            id: "ai",
+            name: "PokerMind AI",
+            chips: balance || 1000,
+            cards: [],
+            thinking: false,
+            walletAddress: walletAddress,
+          },
+          communityCards: [],
+          pot: 0,
+          currentPlayer: "",
+          round: "preflop",
+          actions: [],
+          started: false,
+          ended: false,
+        };
+
+        setGameState(initialGameState);
+        toast.success("Connected to AI wallet on Aptos blockchain!");
+        resolve();
+      } catch (error) {
+        const demoGameState: GameState = {
+          id: Math.random().toString(36).substring(2, 9),
+          players: [
+            {
+              id: "player1",
+              name: "You",
+              chips: 1000,
+              cards: [],
+            },
+          ],
+          aiAgent: {
+            id: "ai",
+            name: "PokerMind AI (Demo)",
+            chips: 1000,
+            cards: [],
+            thinking: false,
+          },
+          communityCards: [],
+          pot: 0,
+          currentPlayer: "",
+          round: "preflop",
+          actions: [],
+          started: false,
+          ended: false,
+        };
+
+        setGameState(demoGameState);
+        toast.error("Failed to connect to blockchain. Using demo mode.");
+        resolve();
+      }
+    });
+  };
+
+  const startGame = () => {
+    return new Promise<void>((resolve) => {
+      if (!gameState) {
+        console.error("Game state is null when starting game");
+        return;
+      }
+
+      const deck = generateDeck();
+      const shuffledDeck = shuffleDeck(deck);
+      
+      const playerCards: CardType[] = [shuffledDeck.pop()!, shuffledDeck.pop()!];
+      const aiCards: CardType[] = [
+        { ...shuffledDeck.pop()!, hidden: true }, 
+        { ...shuffledDeck.pop()!, hidden: true }
+      ];
+      
+      const smallBlind = 10;
+      const bigBlind = 20;
+
+      setGameState(prev => {
+        if (!prev) return null;
+
+        const newState = {
+          ...prev,
+          players: [{
+            ...prev.players[0],
+            cards: playerCards,
+            chips: prev.players[0].chips - bigBlind
+          }],
+          aiAgent: {
+            ...prev.aiAgent,
+            cards: aiCards,
+            chips: prev.aiAgent.chips - smallBlind,
+            thinking: false
+          },
+          pot: smallBlind + bigBlind,
+          currentPlayer: 'player1',
+          started: true,
+          actions: [
+            { 
+              type: 'blind', 
+              amount: smallBlind, 
+              player: 'ai', 
+              timestamp: Date.now() - 1000 
+            },
+            { 
+              type: 'blind', 
+              amount: bigBlind, 
+              player: 'player1', 
+              timestamp: Date.now() 
+            }
+          ],
+          deck: shuffledDeck,
+          round: 'preflop'
+        };
+
+        return newState;
+      });
+
+      toast.success("Game started! You have the big blind.");
+      resolve();
+    });
+  };
+
+  const generateDeck = (): CardType[] => {
+    const suits = ["hearts", "diamonds", "clubs", "spades"];
+    const ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+    const deck: CardType[] = [];
+
+    for (const suit of suits) {
+      for (const rank of ranks) {
+        deck.push({ suit, rank });
+      }
+    }
+
+    return deck;
+  };
+
+  const shuffleDeck = (deck: CardType[]): CardType[] => {
+    const shuffled = [...deck];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  const acceptChallenge = async () => {
+    try {
+      setShowChallenge(false);
+      await initializeGame();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await startGame();
+    } catch (error) {
+      console.error("Error during game initialization:", error);
+      toast.error("Failed to start game");
+    }
+  };
+
+  const declineChallenge = () => {
+    setShowChallenge(false);
+    toast.info("Challenge declined");
+  };
+
+  const handlePlayerAction = async (action: TurnAction) => {
+    if (!gameState || gameState.currentPlayer !== "player1") return;
+  
+    try {
+      const { type, amount } = action;
+      
+      setGameState((prev) => {
+        if (!prev) return null;
+        
+        let newPot = prev.pot;
+        let playerChips = prev.players[0].chips;
+        
+        if (type === "call" && amount) {
+          newPot += amount;
+          playerChips -= amount;
+        } else if (type === "raise" && amount) {
+          newPot += amount;
+          playerChips -= amount;
+        } else if (type === "all-in") {
+          newPot += playerChips;
+          playerChips = 0;
+        }
+        
+        return {
+          ...prev,
+          players: [{
+            ...prev.players[0],
+            chips: playerChips
+          }],
+          pot: newPot,
+          currentPlayer: "ai",
+          aiAgent: {
+            ...prev.aiAgent,
+            thinking: true
+          },
+          actions: [...prev.actions, {
+            type,
+            amount,
+            player: "player1",
+            timestamp: Date.now()
+          }]
+        };
+      });
+
+      setWaitingForAi(true);
+      await handleAITurn();
+    } catch (error) {
+      console.error("Error during player action:", error);
+      setWaitingForAi(false);
+    }
+  };
+
+  const handleAITurn = async () => {
+    if (!gameState || gameState.currentPlayer !== "ai") return;
+  
+    try {
+      const gameInfo = {
+        pot: gameState.pot,
+        round: gameState.round,
+        communityCards: gameState.communityCards,
+        aiCards: gameState.aiAgent.cards,
+        aiChips: gameState.aiAgent.chips,
+        playerChips: gameState.players[0].chips,
+        actions: gameState.actions,
+      };
+  
+      const decision = await getAiDecision(gameInfo);
+      processAIAction(decision.action, decision.amount);
+    } catch (error) {
+      console.error("Error getting AI decision:", error);
+      simulateAIAction();
+    } finally {
+      setWaitingForAi(false);
+    }
+  };
+
+  const processAIAction = (
+    aiAction: "fold" | "check" | "call" | "raise" | "all-in",
+    actionAmount: number = 0
+  ) => {
+    if (!gameState) return;
+
+    setGameState((prev) => {
+      if (!prev) return null;
+
+      let newPot = prev.pot;
+      let aiChips = prev.aiAgent.chips;
+
+      if (aiAction === "fold") {
+        if (prev.aiAgent.walletAddress && prev.pot > 0) {
+          performTransaction(prev.pot, "Poker pot transfer - AI folded");
+        }
+        return {
+          ...prev,
+          ended: true,
+          winner: "player1",
+          pot: 0,
+          currentPlayer: "",
+          players: [
+            {
+              ...prev.players[0],
+              chips: prev.players[0].chips + prev.pot,
+            },
+          ],
+          aiAgent: {
+            ...prev.aiAgent,
+            thinking: false
+          },
+          actions: [...prev.actions, {
+            type: aiAction,
+            player: "ai",
+            timestamp: Date.now()
+          }]
+        };
+      }
+
+      if (aiAction === "call") {
+        newPot += actionAmount;
+        aiChips -= actionAmount;
+      } else if (aiAction === "raise") {
+        newPot += actionAmount;
+        aiChips -= actionAmount;
+      } else if (aiAction === "all-in") {
+        newPot += aiChips;
+        actionAmount = aiChips;
+        aiChips = 0;
+      }
+
+      const newAction: GameAction = {
+        type: aiAction,
+        amount: actionAmount > 0 ? actionAmount : undefined,
+        player: "ai",
+        timestamp: Date.now(),
+      };
+
+      const shouldAdvanceRound = prev.actions.filter(a => a.type !== "blind").length % 2 === 1 
+        && (aiAction === "check" || aiAction === "call");
+
+      let nextRound = shouldAdvanceRound ? determineNextRound(prev.round) : prev.round;
+      let newCommunityCards = [...prev.communityCards];
+      let remainingDeck = [...(prev.deck || [])];
+
+      if (shouldAdvanceRound && nextRound !== prev.round) {
+        switch (nextRound) {
+          case "flop":
+            newCommunityCards = remainingDeck.splice(-3).reverse();
+            break;
+          case "turn":
+          case "river":
+            newCommunityCards = [...prev.communityCards, remainingDeck.pop()!];
+            break;
+          case "showdown":
+            return handleShowdown(prev, newAction, aiChips);
+        }
+      }
+
+      return {
+        ...prev,
+        aiAgent: {
+          ...prev.aiAgent,
+          chips: aiChips,
+          thinking: false,
+        },
+        pot: newPot,
+        communityCards: newCommunityCards,
+        currentPlayer: "player1",
+        round: nextRound,
+        actions: [...prev.actions, newAction],
+        deck: remainingDeck,
+      };
+    });
+  };
+
+  const handleShowdown = (prevState: GameState, lastAction: GameAction, finalAiChips: number) => {
+    const updatedAICards = prevState.aiAgent.cards.map(card => ({ ...card, hidden: false }));
+    const playerHand = evaluateHand([...prevState.players[0].cards, ...prevState.communityCards]);
+    const aiHand = evaluateHand([...updatedAICards, ...prevState.communityCards]);
+
+    let winner;
+    if (playerHand.rank > aiHand.rank) winner = "player1";
+    else if (aiHand.rank > playerHand.rank) winner = "ai";
+    else winner = playerHand.highCard > aiHand.highCard ? "player1" : 
+                 aiHand.highCard > playerHand.highCard ? "ai" : null;
+
+    const finalPot = prevState.pot;
+    let updatedPlayerChips = prevState.players[0].chips;
+    let updatedAIChips = finalAiChips;
+
+    if (winner === "player1") {
+      updatedPlayerChips += finalPot;
+      if (prevState.aiAgent.walletAddress && finalPot > 0) {
+        performTransaction(finalPot, "Poker pot transfer - Player won");
+      }
+      toast.success(`You won with ${playerHand.name}!`);
+    } else if (winner === "ai") {
+      updatedAIChips += finalPot;
+      toast.error(`AI won with ${aiHand.name}!`);
+    } else {
+      const halfPot = Math.floor(finalPot / 2);
+      updatedPlayerChips += halfPot;
+      updatedAIChips += finalPot - halfPot;
+      toast.info("It's a tie! Pot split.");
+    }
+
+    return {
+      ...prevState,
+      players: [{
+        ...prevState.players[0],
+        chips: updatedPlayerChips,
+      }],
+      aiAgent: {
+        ...prevState.aiAgent,
+        cards: updatedAICards,
+        chips: updatedAIChips,
+        thinking: false,
+      },
+      pot: 0,
+      actions: [...prevState.actions, lastAction],
+      round: "showdown",
+      ended: true,
+      winner,
+      currentPlayer: "",
+      handEvaluations: { player: playerHand, ai: aiHand },
+    };
+  };
+
+  const simulateAIAction = () => {
+    if (!gameState) return;
+
+    const actions = ["fold", "check", "call", "raise", "all-in"];
+    const weights = [0.1, 0.3, 0.3, 0.2, 0.1];
+    let random = Math.random();
+    let actionIndex = 0;
+
+    for (let i = 0; i < weights.length; i++) {
+      random -= weights[i];
+      if (random <= 0) {
+        actionIndex = i;
+        break;
+      }
+    }
+
+    const lastPlayerAction = gameState.actions.slice().reverse().find(a => a.player === "player1");
+    if (lastPlayerAction && 
+        (lastPlayerAction.type === "raise" || lastPlayerAction.type === "all-in") && 
+        actions[actionIndex] === "check") {
+      actionIndex = 2;
+    }
+
+    const aiAction = actions[actionIndex] as "fold" | "check" | "call" | "raise" | "all-in";
+    let actionAmount = 0;
+
+    switch (aiAction) {
+      case "call":
+        const lastBet = gameState.actions.slice().reverse()
+          .find(a => a.type === "raise" || a.type === "call");
+        actionAmount = lastBet?.amount || 20;
+        break;
+      case "raise":
+        actionAmount = 20 * (2 + Math.floor(Math.random() * 3));
+        break;
+      case "all-in":
+        actionAmount = gameState.aiAgent.chips;
+        break;
+    }
+
+    processAIAction(aiAction, actionAmount);
+  };
+
+  const determineNextRound = (currentRound: string): "preflop" | "flop" | "turn" | "river" | "showdown" => {
+    switch (currentRound) {
+      case "preflop": return "flop";
+      case "flop": return "turn";
+      case "turn": return "river";
+      case "river": return "showdown";
+      default: return currentRound as "preflop" | "flop" | "turn" | "river" | "showdown";
+    }
+  };
+
+  const startNewHand = async () => {
+    await initializeGame();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await startGame();
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-background to-gray-900/50">
+      <Header />
+      <main className="pt-20 px-4 max-w-screen-xl mx-auto">
+        <div className="min-h-[80vh] flex flex-col items-center justify-center">
+          {showChallenge && (
+            <ChallengeDialog
+              onAccept={acceptChallenge}
+              onDecline={declineChallenge}
+            />
+          )}
+
+          {!showChallenge && !gameState && (
+            <div className="flex flex-col items-center gap-8 p-8 bg-poker-dark rounded-xl border border-gray-800 max-w-md mx-auto">
+              <h2 className="text-2xl font-bold text-center">PokerMind Challenge</h2>
+              <p className="text-center text-gray-300">
+                Play against an AI opponent powered by blockchain technology!
+              </p>
+              <div className="flex gap-4 mt-4">
+                <Button size="lg" onClick={() => initializeGame()} className="min-w-32">
+                  <PlayIcon className="mr-2" />
+                  Start Game
+                </Button>
+                <Button variant="outline" size="lg" onClick={() => setShowCardPreview(true)} className="min-w-32">
+                  Preview Cards
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {showCardPreview && <CardPreview onClose={() => setShowCardPreview(false)} />}
+
+          {gameState && (
+            <>
+              <div className="w-full max-w-4xl mb-6">
+                {gameState.aiAgent.walletAddress && (
+                  <div className="bg-poker-dark rounded-lg p-4 mb-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="text-lg font-semibold">AI Wallet Details</h3>
+                      <Button variant="ghost" size="sm" onClick={() => setShowDetails(!showDetails)}>
+                        Details <ChevronDownIcon className={`ml-1 transform ${showDetails ? "rotate-180" : ""}`} />
+                      </Button>
+                    </div>
+                    {showDetails && (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Wallet Address:</span>
+                          <span className="font-mono text-xs truncate max-w-xs">
+                            {gameState.aiAgent.walletAddress}
+                            <a
+                              href={`https://explorer.aptoslabs.com/account/${gameState.aiAgent.walletAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-2 inline-flex items-center text-blue-400 hover:text-blue-300"
+                            >
+                              <ExternalLinkIcon size={14} />
+                            </a>
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Blockchain Balance:</span>
+                          <span className="font-medium">{walletBalance || "0"} APT</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Game Chips:</span>
+                          <span className="font-medium">{gameState.aiAgent.chips} chips</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {gameState.ended && (
+                  <div className="mt-4 mb-6">
+                    <button onClick={startNewHand} className="poker-button-primary">
+                      Play Another Hand
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full max-w-full rounded-xl overflow-hidden shadow-xl border border-gray-800">
+                <PokerTable
+                  gameState={gameState}
+                  onAction={handlePlayerAction}
+                  isProcessing={waitingForAi || isProcessing}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </main>
+
+      {process.env.NODE_ENV === 'development' && (
+        <div className="fixed bottom-4 right-4 bg-black/80 p-4 rounded-lg text-xs text-white">
+          <pre>
+            {JSON.stringify({
+              started: gameState?.started,
+              currentPlayer: gameState?.currentPlayer,
+              pot: gameState?.pot,
+              round: gameState?.round,
+              actions: gameState?.actions.map(a => `${a.player}:${a.type}:${a.amount || 0}`).slice(-5),
+            }, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Game;

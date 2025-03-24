@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { Player as PlayerType, AIAgent as AIAgentType, Card as CardType, GameAction, GameState } from '@/lib/types';
 import AIAgent from './AIAgent';
@@ -12,7 +11,7 @@ export interface PokerTableProps {
   isProcessing: boolean;
 }
 
-const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
+const PokerTable = ({ gameState, onAction, isProcessing }: PokerTableProps) => {
   const [raiseAmount, setRaiseAmount] = useState(0);
   const [isRaising, setIsRaising] = useState(false);
   const [currentBet, setCurrentBet] = useState(0);
@@ -34,6 +33,15 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
       setRaiseAmount(20);
     }
   }, [lastAction]);
+  
+  useEffect(() => {
+    console.log('Game state changed:', { 
+      pot: gameState.pot,
+      currentPlayer: gameState.currentPlayer,
+      started: gameState.started,
+      actions: gameState.actions
+    });
+  }, [gameState]);
   
   const handleFold = () => {
     onAction({ type: 'fold' });
@@ -73,6 +81,12 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
     if (currentBet === 0) return 'Check';
     return `Call ${currentBet}`;
   };
+
+  console.log('PokerTable render:', { 
+    pot: gameState.pot,
+    isProcessing,
+    currentPlayer: gameState.currentPlayer
+  });
 
   return (
     <div className="w-full h-full flex flex-col items-center justify-center p-4">
@@ -135,13 +149,14 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
           )}
         </div>
         
-        <div className={`flex flex-wrap justify-center gap-3 transition-opacity duration-300 ${isPlayerTurn ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+        <div className={`flex flex-wrap justify-center gap-3 transition-opacity duration-300 ${isPlayerTurn && !isProcessing ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
           {!isRaising ? (
             <>
               <Button 
                 variant="destructive" 
                 onClick={handleFold}
                 className="min-w-24"
+                disabled={isProcessing}
               >
                 Fold
               </Button>
@@ -150,6 +165,7 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
                 variant="secondary" 
                 onClick={handleCheckCall}
                 className="min-w-24"
+                disabled={isProcessing}
               >
                 {getCheckCallLabel()}
               </Button>
@@ -158,7 +174,7 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
                 variant="default" 
                 onClick={handleRaise}
                 className="min-w-24"
-                disabled={humanPlayer.chips <= currentBet}
+                disabled={humanPlayer.chips <= currentBet || isProcessing}
               >
                 Raise
               </Button>
@@ -167,6 +183,7 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
                 variant="outline" 
                 onClick={handleAllIn}
                 className="min-w-24 bg-red-500/10 text-red-500 hover:bg-red-500/20 hover:text-red-600"
+                disabled={isProcessing}
               >
                 All In
               </Button>
@@ -185,6 +202,7 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
                   value={raiseAmount} 
                   onChange={(e) => setRaiseAmount(parseInt(e.target.value))} 
                   className="w-full"
+                  disabled={isProcessing}
                 />
                 <div className="text-center text-lg font-semibold mt-1">
                   {raiseAmount} chips
@@ -194,12 +212,14 @@ const PokerTable = ({ gameState, onAction }: PokerTableProps) => {
                 <Button 
                   variant="outline" 
                   onClick={cancelRaise}
+                  disabled={isProcessing}
                 >
                   Cancel
                 </Button>
                 <Button 
                   variant="default" 
                   onClick={handleRaise}
+                  disabled={isProcessing}
                 >
                   Confirm Raise
                 </Button>

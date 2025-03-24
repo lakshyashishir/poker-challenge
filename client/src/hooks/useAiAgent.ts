@@ -18,6 +18,8 @@ interface AiDecision {
   reasoning?: string;
 }
 
+const BackendUrl = import.meta.env.PUBLIC_BACKEND_URL || 'http://localhost:3000';
+
 export const useAiAgent = () => {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
@@ -26,7 +28,7 @@ export const useAiAgent = () => {
   useEffect(() => {
     const initializeAgent = async () => {
       try {
-        const response = await fetch('/api/agent/connect', {
+        const response = await fetch(`${BackendUrl}/api/agent/connect`, {
           method: 'POST',
         });
         const data = await response.json();
@@ -45,7 +47,7 @@ export const useAiAgent = () => {
 
   const getWalletBalance = useCallback(async (): Promise<number> => {
     try {
-      const response = await fetch('/api/agent/balance', {
+      const response = await fetch(`${BackendUrl}/api/agent/balance`, {
         method: 'GET',
       });
       const data = await response.json();
@@ -64,7 +66,7 @@ export const useAiAgent = () => {
   const getAiDecision = useCallback(async (gameInfo: GameInfo): Promise<AiDecision> => {
     setIsProcessing(true);
     try {
-      const response = await fetch('/api/agent/decision', {
+      const response = await fetch(`${BackendUrl}/api/agent/decision`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -89,7 +91,7 @@ export const useAiAgent = () => {
   const performTransaction = useCallback(async (amount: number, reason: string): Promise<boolean> => {
     setIsProcessing(true);
     try {
-      const response = await fetch('/api/agent/transaction', {
+      const response = await fetch(`${BackendUrl}/api/agent/transaction`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

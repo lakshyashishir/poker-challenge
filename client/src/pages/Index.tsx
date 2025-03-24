@@ -62,14 +62,14 @@ const Index = () => {
       <Header />
       <main className="pt-20">
         <Hero />
-        <About />
-        <section className="py-16 px-4">
+        {/* <About /> */}
+        {/* <section className="py-16 px-4">
           <div className="max-w-6xl mx-auto">
             <Leaderboard entries={mockLeaderboardData} />
           </div>
-        </section>
+        </section> */}
         
-        <footer className="bg-poker-dark text-white py-8 px-4">
+        {/* <footer className="bg-poker-dark text-white py-8 px-4">
           <div className="max-w-6xl mx-auto">
             <div className="flex flex-col md:flex-row justify-between items-center gap-6">
               <div>
@@ -88,7 +88,7 @@ const Index = () => {
               © {new Date().getFullYear()} PokerChallenge. All rights reserved.
             </div>
           </div>
-        </footer>
+        </footer> */}
       </main>
     </div>
   );
